@@ -2,7 +2,26 @@
 
 It crawls a public URL, audits buttons/clickable elements, extracts local-business details, checks semantic copy alignment, flags contradictions and unsupported claims, scores trust risk, and generates an improvement prompt plus JSON/PDF exports.
 
-## Quick start
+## Environment Variables
+
+This project uses environment variables for backend and frontend configuration.
+
+Create `backend/.env` :
+
+```env
+APP_ENV=production
+FRONTEND_URL=http://localhost:3000
+CORS_ORIGINS=http://localhost:3000
+OPENAI_API_KEY=your_key_here
+DATABASE_URL=your_database_url_here
+SECRET_KEY=your_secret_key_here
+JWT_SECRET=your_jwt_secret_here
+PLAYWRIGHT_BROWSERS_PATH=0
+
+Create `frontend/.env.local` :
+
+```env
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 
 ### 1) Backend
 
