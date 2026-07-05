@@ -13,25 +13,69 @@ from app.services.audit_pipeline import run_audit
 from app.services.exporter import export_json_bytes, export_pdf_bytes
 from app.services.report_store import ReportStore
 
+
 settings = get_settings()
-app = FastAPI(title='PageTrust Auditor API', version='1.0.0')
+
+
+def normalize_cors_origins(raw_origins) -> list[str]:
+    """
+    Makes CORS robust for local + Render deployment.
+
+    Handles:
+    - list[str]
+    - comma-separated string
+    - empty/missing env
+    """
+    default_origins = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "https://pagetrust-auditor-frontend.onrender.com",
+    ]
+
+    origins: list[str] = []
+
+    if isinstance(raw_origins, str):
+        origins.extend([origin.strip() for origin in raw_origins.split(",") if origin.strip()])
+    elif isinstance(raw_origins, list):
+        origins.extend([str(origin).strip() for origin in raw_origins if str(origin).strip()])
+
+    origins.extend(default_origins)
+
+    # Remove trailing slashes and duplicates
+    cleaned = []
+    for origin in origins:
+        origin = origin.rstrip("/")
+        if origin and origin not in cleaned:
+            cleaned.append(origin)
+
+    return cleaned
+
+
+app = FastAPI(title="PageTrust Auditor API", version="1.0.0")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=normalize_cors_origins(settings.cors_origins),
     allow_credentials=True,
-    allow_methods=['*'],
-    allow_headers=['*'],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 JOBS: dict[str, AuditJob] = {}
 
 
-@app.get('/health')
+@app.get("/")
+def root() -> dict:
+    return {"status": "ok", "service": "PageTrust Auditor API"}
+
+
+@app.get("/health")
 def health() -> dict:
-    return {'status': 'ok', 'service': 'PageTrust Auditor API'}
+    return {"status": "ok", "service": "PageTrust Auditor API"}
 
 
-@app.post('/api/audits', response_model=AuditJob)
+@app.post("/api/audits", response_model=AuditJob)
 def create_audit(request: AuditRequest, background_tasks: BackgroundTasks) -> AuditJob:
     audit_id = str(uuid4())
     job = AuditJob(id=audit_id, status=AuditStatus.queued)
@@ -40,54 +84,60 @@ def create_audit(request: AuditRequest, background_tasks: BackgroundTasks) -> Au
     return job
 
 
-@app.post('/api/audits/sync', response_model=AuditReport)
+@app.post("/api/audits/sync", response_model=AuditReport)
 async def create_audit_sync(request: AuditRequest) -> AuditReport:
     # Useful for tests and small demos. Prefer /api/audits for production UI.
     return await run_audit(request)
 
 
-@app.get('/api/audits/{audit_id}', response_model=AuditJob)
+@app.get("/api/audits/{audit_id}", response_model=AuditJob)
 def get_audit(audit_id: str) -> AuditJob:
     if audit_id in JOBS:
         return JOBS[audit_id]
+
     report = ReportStore().load(audit_id)
     if report:
         return AuditJob(id=audit_id, status=AuditStatus.complete, report=report)
-    raise HTTPException(status_code=404, detail='Audit not found')
+
+    raise HTTPException(status_code=404, detail="Audit not found")
 
 
-@app.get('/api/audits/{audit_id}/export/json')
+@app.get("/api/audits/{audit_id}/export/json")
 def export_json(audit_id: str) -> Response:
     report = _load_report_or_404(audit_id)
     return Response(
         content=export_json_bytes(report),
-        media_type='application/json',
-        headers={'Content-Disposition': f'attachment; filename="pagetrust-{audit_id}.json"'},
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="pagetrust-{audit_id}.json"'},
     )
 
 
-@app.get('/api/audits/{audit_id}/export/pdf')
+@app.get("/api/audits/{audit_id}/export/pdf")
 def export_pdf(audit_id: str) -> Response:
     report = _load_report_or_404(audit_id)
     return Response(
         content=export_pdf_bytes(report),
-        media_type='application/pdf',
-        headers={'Content-Disposition': f'attachment; filename="pagetrust-{audit_id}.pdf"'},
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="pagetrust-{audit_id}.pdf"'},
     )
 
 
 def _load_report_or_404(audit_id: str) -> AuditReport:
     job = JOBS.get(audit_id)
+
     if job and job.report:
         return job.report
+
     report = ReportStore().load(audit_id)
     if report:
         return report
-    raise HTTPException(status_code=404, detail='Completed report not found')
+
+    raise HTTPException(status_code=404, detail="Completed report not found")
 
 
 def _run_background_audit(audit_id: str, request: AuditRequest) -> None:
     JOBS[audit_id] = AuditJob(id=audit_id, status=AuditStatus.running)
+
     try:
         report = asyncio.run(run_audit(request, audit_id=audit_id))
         JOBS[audit_id] = AuditJob(id=audit_id, status=AuditStatus.complete, report=report)
