@@ -1,0 +1,10 @@
+.env
+.env.local
+.venv
+node_modules
+.next
+__pycache__
+*.pyc
+.DS_Store
+backend/app/storage/local_reports/*.json
+backend/app/storage/local_reports/*.pdf
